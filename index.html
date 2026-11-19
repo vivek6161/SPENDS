@@ -42,14 +42,17 @@
   .total .label { font-size: 13px; color: var(--muted); }
   .total .value { font-size: 24px; font-weight: 700; margin-top: 4px; font-variant-numeric: tabular-nums; }
 
-  .amount-wrap { background: var(--card); border-radius: 16px; padding: 8px 16px; display: flex; align-items: center; gap: 8px; margin-bottom: 12px; }
+  .amount-wrap { display: flex; cursor: text; border: 2px solid var(--line); background: var(--card); border-radius: 16px; padding: 8px 16px; display: flex; align-items: center; gap: 8px; margin-bottom: 12px; }
   .amount-wrap .rupee { font-size: 32px; color: var(--muted); }
-  #amount { flex: 1; min-width: 0; border: none; outline: none; background: transparent; color: var(--text);
+  #amount { flex: 1; min-width: 0; width: 100%; border: none; outline: none; background: transparent; color: var(--text); -webkit-user-select: text; user-select: text; -webkit-appearance: none; appearance: none; border-radius: 0;
     font-size: 40px; font-weight: 700; padding: 8px 0; font-variant-numeric: tabular-nums; }
   #amount::placeholder { color: var(--muted); opacity: .5; }
   .amount-wrap.shake { animation: shake .3s; }
   @keyframes shake { 25% { transform: translateX(-6px); } 75% { transform: translateX(6px); } }
 
+  #note { display: block; width: 100%; background: var(--card); color: var(--text); border: 2px solid var(--line); border-radius: 16px;
+    padding: 14px 16px; font-size: 17px; outline: none; margin-bottom: 10px; -webkit-appearance: none; appearance: none; }
+  #note::placeholder { color: var(--muted); opacity: .7; }
   .hint { font-size: 13px; color: var(--muted); margin: 0 4px 10px; }
 
   .cats { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; margin-bottom: 24px; }
@@ -91,11 +94,12 @@
   <div class="total"><div class="label" id="monthLabel">This month</div><div class="value" id="month">₹0</div></div>
 </div>
 
-<div class="amount-wrap" id="amountWrap">
+<label class="amount-wrap" id="amountWrap" for="amount">
   <span class="rupee">₹</span>
-  <input id="amount" type="text" inputmode="decimal" placeholder="0" autocomplete="off" aria-label="Amount spent">
-</div>
-<p class="hint">Type the amount, then tap a category to save it.</p>
+  <input id="amount" type="number" step="any" min="0" inputmode="decimal" pattern="[0-9]*" placeholder="0" autocomplete="off" aria-label="Amount spent">
+</label>
+<input id="note" type="text" placeholder="What was it for? (optional)" autocomplete="off" maxlength="80" aria-label="What you spent it on">
+<p class="hint">Type the amount, add a note if you like, then tap a category to save.</p>
 
 <div class="cats" id="cats"></div>
 
@@ -106,6 +110,7 @@
 <div class="card" id="summary"></div>
 
 <button class="export" id="export">Export backup (CSV)</button>
+<p class="hint" style="text-align:center;margin-top:16px">v3</p>
 
 <div class="toast" id="toast"></div>
 
@@ -155,7 +160,14 @@
     return d.toLocaleDateString("en-IN", { day: "numeric", month: "short" }) + ", " + t;
   }
 
+  function esc(t) {
+    return String(t).replace(/[&<>"']/g, function (c) {
+      return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c];
+    });
+  }
+
   var amountEl = document.getElementById("amount");
+  var noteEl = document.getElementById("note");
   var wrapEl = document.getElementById("amountWrap");
   var catsEl = document.getElementById("cats");
   var recentEl = document.getElementById("recent");
@@ -193,9 +205,11 @@
       return;
     }
     amt = Math.round(amt * 100) / 100;
-    expenses.push({ id: Date.now() + "-" + Math.random().toString(36).slice(2, 6), amount: amt, cat: cat, ts: Date.now() });
+    var note = noteEl.value.trim();
+    expenses.push({ id: Date.now() + "-" + Math.random().toString(36).slice(2, 6), amount: amt, cat: cat, note: note, ts: Date.now() });
     save(expenses);
     amountEl.value = "";
+    noteEl.value = "";
     toast("Saved " + fmt(amt) + " · " + cat);
     render();
   }
@@ -232,7 +246,7 @@
         row.className = "row";
         row.innerHTML =
           '<span class="emoji">' + emojiFor(e.cat) + '</span>' +
-          '<div class="main"><div class="name">' + e.cat + '</div><div class="sub">' + timeLabel(e.ts) + '</div></div>' +
+          '<div class="main"><div class="name">' + (e.note ? esc(e.note) : e.cat) + '</div><div class="sub">' + (e.note ? e.cat + ' · ' : '') + timeLabel(e.ts) + '</div></div>' +
           '<span class="amt">' + fmt(e.amount) + '</span>';
         var del = document.createElement("button");
         del.className = "del";
@@ -268,12 +282,13 @@
   // Export CSV
   document.getElementById("export").addEventListener("click", function () {
     if (!expenses.length) { toast("Nothing to export yet"); return; }
-    var lines = ["date,time,category,amount"];
+    var lines = ["date,time,category,amount,note"];
     expenses.slice().sort(function (a, b) { return a.ts - b.ts; }).forEach(function (e) {
       var d = new Date(e.ts);
       var date = d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0");
       var time = String(d.getHours()).padStart(2, "0") + ":" + String(d.getMinutes()).padStart(2, "0");
-      lines.push([date, time, e.cat, e.amount].join(","));
+      var n = '"' + String(e.note || "").replace(/"/g, '""') + '"';
+      lines.push([date, time, e.cat, e.amount, n].join(","));
     });
     var csv = lines.join("\n");
     var file;
@@ -292,6 +307,7 @@
     setTimeout(function () { URL.revokeObjectURL(url); }, 2000);
   });
 
+  wrapEl.addEventListener("click", function () { amountEl.focus(); });
   render();
 
 })();
